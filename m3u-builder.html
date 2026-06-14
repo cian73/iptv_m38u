@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M3U Playlist Builder</title>
+<style>
+  :root {
+    --bg: #14171c;
+    --panel: #1c2128;
+    --border: #2d333b;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #5fb3b3;
+    --accent-soft: rgba(95,179,179,0.12);
+    --mono: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding: 32px 16px;
+    display: flex;
+    justify-content: center;
+  }
+  .wrap { max-width: 760px; width: 100%; }
+  h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0 0 24px;
+    line-height: 1.5;
+  }
+  label {
+    display: block;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  textarea {
+    width: 100%;
+    min-height: 220px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    padding: 14px;
+    resize: vertical;
+    line-height: 1.6;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  input[type="text"] {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    flex: 1;
+    min-width: 160px;
+  }
+  button {
+    background: var(--accent);
+    color: #0b1015;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 18px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  button:hover { opacity: 0.85; }
+  button.secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .output-section { margin-top: 28px; }
+  .output-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+  }
+  .count {
+    font-size: 0.8rem;
+    color: var(--accent);
+    font-family: var(--mono);
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.6;
+    overflow-x: auto;
+    max-height: 320px;
+    margin: 0;
+  }
+  .hint {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+  .empty {
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>M3U Playlist Builder</h1>
+  <p class="sub">Paste one stream per line. Each line can be just a URL, or <code>Channel Name | URL</code> / <code>Channel Name, URL</code>. Lines without a name get an auto-generated label.</p>
+
+  <label for="input">Stream list</label>
+  <textarea id="input" placeholder="CBC News Toronto | https://cbcrclinear-tor.akamaized.net/hls/live/2042765/CBCRCLINEAR_TOR_11/master5.m3u8
+https://citynewsregional.akamaized.net/hls/live/1024053/Regional_Live_8/Video-2Mbps.m3u8
+WildEarth | https://dqga3jatxofgx.cloudfront.net/WildEarth.m3u8"></textarea>
+
+  <div class="row">
+    <input type="text" id="playlistName" placeholder="Playlist name (e.g. My Channels)" value="My Channels">
+    <button id="generate">Generate M3U</button>
+    <button id="download" class="secondary" disabled>Download .m3u</button>
+  </div>
+
+  <div class="output-section">
+    <div class="output-header">
+      <label style="margin:0;">Output</label>
+      <span class="count" id="count"></span>
+    </div>
+    <pre id="output"><span class="empty">Generated playlist will appear here.</span></pre>
+    <div class="hint">Copy this directly, or download the file and use its URL / upload it wherever the M3U-to-Stremio addon config expects a playlist link.</div>
+  </div>
+</div>
+
+<script>
+  const input = document.getElementById('input');
+  const output = document.getElementById('output');
+  const countEl = document.getElementById('count');
+  const downloadBtn = document.getElementById('download');
+  const generateBtn = document.getElementById('generate');
+  const nameInput = document.getElementById('playlistName');
+
+  let lastM3U = '';
+
+  function parseLines(raw) {
+    return raw
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && !l.startsWith('#'));
+  }
+
+  function buildM3U() {
+    const lines = parseLines(input.value);
+    if (lines.length === 0) {
+      output.innerHTML = '<span class="empty">No streams to build yet — paste some lines above.</span>';
+      countEl.textContent = '';
+      downloadBtn.disabled = true;
+      lastM3U = '';
+      return;
+    }
+
+    let m3u = '#EXTM3U\n';
+    let i = 1;
+    for (const line of lines) {
+      let name, url;
+      if (line.includes('|')) {
+        [name, url] = line.split('|').map(s => s.trim());
+      } else if (line.includes(',') && line.match(/^https?:\/\//) === null) {
+        // "Name, URL" format where URL comes after comma
+        const idx = line.lastIndexOf(',');
+        name = line.slice(0, idx).trim();
+        url = line.slice(idx + 1).trim();
+      } else {
+        url = line;
+        name = `Channel ${i}`;
+      }
+      m3u += `#EXTINF:-1,${name}\n${url}\n`;
+      i++;
+    }
+
+    lastM3U = m3u;
+    output.textContent = m3u;
+    countEl.textContent = `${lines.length} channel${lines.length === 1 ? '' : 's'}`;
+    downloadBtn.disabled = false;
+  }
+
+  generateBtn.addEventListener('click', buildM3U);
+
+  downloadBtn.addEventListener('click', () => {
+    if (!lastM3U) return;
+    const blob = new Blob([lastM3U], { type: 'application/x-mpegurl' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const filename = (nameInput.value.trim() || 'playlist').replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase();
+    a.href = url;
+    a.download = `${filename}.m3u`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+</script>
+</body>
+</html>
